@@ -15,6 +15,7 @@ import { makeWallet } from './utils/wallet';
 import { collectSystemHealth } from './health';
 
 const port = parseInt(process.env.CARS_NODE_PORT || '7777', 10);
+const uploadTimeout = process.env.CARS_UPLOAD_TIMEOUT || '6h';
 const MAINNET_PRIVATE_KEY = process.env.MAINNET_PRIVATE_KEY;
 const TESTNET_PRIVATE_KEY = process.env.TESTNET_PRIVATE_KEY;
 const INIT_K3S = process.env.INIT_K3S;
@@ -49,9 +50,20 @@ async function main() {
     startCronJobs(db, mainnetWallet, testnetWallet);
 
     const app = express();
+    const isUploadRequest = (req) => req.path.startsWith('/api/v1/upload/');
 
-    app.use(bodyParser.json({ limit: '1gb' }));
-    app.use(bodyParser.raw({ type: 'application/octet-stream', limit: '1gb' }));
+    app.use((req, res, next) => {
+        if (isUploadRequest(req)) {
+            return next();
+        }
+        return bodyParser.json({ limit: '1gb' })(req, res, next);
+    });
+    app.use((req, res, next) => {
+        if (isUploadRequest(req)) {
+            return next();
+        }
+        return bodyParser.raw({ type: 'application/octet-stream', limit: '1gb' })(req, res, next);
+    });
 
     // CORS
     app.use((req, res, next) => {
@@ -101,7 +113,7 @@ async function main() {
     });
 
     // Upload uses signed URLs, so is excluded from Authrite. Also, they are not logged for performance reasons (they are large).
-    app.post('/api/v1/upload/:deploymentId/:signature', timeout('2h'), haltOnTimedout, upload);
+    app.post('/api/v1/upload/:deploymentId/:signature', timeout(uploadTimeout), haltOnTimedout, upload);
 
     // Public queries are also not authenticated
     app.get('/api/v1/public', publicRoute)
